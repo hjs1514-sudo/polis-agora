@@ -47,6 +47,10 @@ code {
 }
 
 /* ---------- 배경 ---------- */
+.page > :not(.backdrop):not(.toast):not(.topbar):not(.tv-close) {
+  position: relative;
+  z-index: 1;
+}
 .page {
   position: relative;
   min-height: 100vh;
@@ -55,7 +59,7 @@ code {
 .backdrop {
   position: fixed;
   inset: 0;
-  z-index: -1;
+  z-index: 0;
   overflow: hidden;
 }
 .backdrop-img {
@@ -821,7 +825,7 @@ textarea {
   position: relative;
   justify-self: center;
 }
-.roster-grid {
+.grid-2.roster-grid {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);
 }
 .table td:nth-child(2) {
