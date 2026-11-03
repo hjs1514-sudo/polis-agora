@@ -67,3 +67,13 @@ npm run build:all    # dist/ (실사용판) + dist-demo/ (체험판 한 파일)
 - 코드: Claude와 함께 작성
 
 자유롭게 고쳐 쓰셔도 됩니다. 학생 개인정보(명단)는 선생님의 Cloudflare D1에만 저장되며, 이 저장소에는 들어 있지 않습니다.
+
+## 폴리스에 새 건물 짓기
+
+지도는 Canva로 만든 레고 그림(바닥 `public/img/map/ground.webp` + 건물 그림)을 겹쳐 그립니다.
+
+1. Canva에서 흰 배경의 건물 그림을 만들어 내려받습니다.
+2. 배경을 지웁니다: `python3 tools/cutout.py 그림.png public/img/map/이름.png 800 18 40`
+   (흰 대리석이 많은 건물은 마지막 두 숫자를 `10 10`처럼 낮춥니다) 그다음 webp로 바꿉니다.
+3. `src/map/world.js`의 `PLACES`에 한 줄을 더합니다. `soon`에 안내 문구를 넣으면 '공사 중' 건물로 보입니다.
+4. 건물 안 화면은 `src/screens/StudentApp.jsx`의 `Building`에서 `id`로 이어 붙입니다.

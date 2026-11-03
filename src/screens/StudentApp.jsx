@@ -24,6 +24,7 @@ function Login({ onToken }) {
     return { grade: last.grade || '', klass: last.klass || '', no: '', name: '', code: '' };
   });
   const [busy, setBusy] = useState(false);
+  const [entering, setEntering] = useState(false);
   const [toast, show] = useToast();
   useEffect(() => {
     api.status().then(
@@ -41,20 +42,32 @@ function Login({ onToken }) {
     try {
       const token = await api.login(f);
       store.set('polis-last', JSON.stringify({ grade: f.grade, klass: f.klass }));
-      onToken(token);
+      // 성문 안으로 걸어 들어가는 장면을 보여 준 뒤 들어간다
+      const calm = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+      setEntering(true);
+      setTimeout(() => onToken(token), calm ? 0 : 1400);
+      return;
     } catch (err) {
       show(err.message, 'error');
     }
     setBusy(false);
   };
+  const room = status?.room;
   return (
-    <div className="page">
-      <Backdrop stage="login" />
-      <main className="center-card">
-        <div className="card login-card">
-          <p className="eyebrow">폴리스 학급회의</p>
+    <div className={`page gate-page${entering ? ' entering' : ''}`}>
+      <div className="gate-scene" aria-hidden="true">
+        <div className="gate-img" style={{ backgroundImage: "url(img/gate-scene.webp)" }} />
+        <div className="gate-light" />
+      </div>
+      <header className="gate-banner">
+        <span>🏛️</span>
+        <b>{room ? `${room.grade}학년 ${room.klass}반 폴리스` : '폴리스 학급회의'}</b>
+      </header>
+      <main className="gate-main">
+        <div className="card login-card gate-card">
+          <p className="eyebrow">성문을 지키는 병사</p>
           <h1 className="title">시민 명부 확인</h1>
-          <p className="muted">성문 앞입니다. 학년, 반, 번호, 이름을 대면 성문이 열립니다.</p>
+          <p className="muted">학년, 반, 번호, 이름과 입장 코드를 대면 성문이 열려요.</p>
           {status?.error && <p className="alert">{status.error}</p>}
           {status && !status.error && !status.ready && <p className="alert">아직 선생님이 학급방을 만들지 않았어요.</p>}
           {IS_DEMO && (
@@ -88,7 +101,7 @@ function Login({ onToken }) {
               </label>
             )}
             <button className="btn btn-primary btn-lg" disabled={busy}>
-              {busy ? '명부 확인 중…' : '성문 열기'}
+              {entering ? '성문이 열려요!' : busy ? '명부 확인 중…' : '성문 열기'}
             </button>
           </form>
           <a className="small-link" href="#/teacher">

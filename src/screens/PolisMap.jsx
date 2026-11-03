@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { AVATARS } from '../core/engine.js';
-import { BUILDINGS, PLAZA, SPAWN, WORLD, byId, drawBuilding, drawGround, drawToken, drawTrees, hit, roundRect, solids } from '../map/world.js';
+import { PLACES, PLAZA, SPAWN, WORLD, boxOf, byId, doorOf, doorPoint, drawFigure, drawGround, drawPlace, drawPlaceLabel, hit, onLand, roundRect, solids } from '../map/world.js';
 
 const SPEED = 230; // 초당 픽셀
 const R = 14; // 몸 반지름
@@ -31,7 +31,7 @@ function avatarImg(id) {
   if (!id || !AVATARS.some((a) => a.id === id)) return null;
   if (!imgCache[id]) {
     const im = new Image();
-    im.src = `img/avatars/${id}.png`;
+    im.src = `img/avatars/cut/${id}.webp`;
     imgCache[id] = im;
   }
   return imgCache[id];
@@ -56,11 +56,11 @@ export default function PolisMap({ v, renderPanel, onPlace }) {
     let pos = SPAWN;
     try {
       const p = JSON.parse(sessionStorage.getItem(POS_KEY) || 'null');
-      if (p && p.x > 0 && p.x < WORLD.w && p.y > 0 && p.y < WORLD.h) pos = p;
+      if (p && onLand(p.x, p.y, R) && !solids().some((r) => hit(p, r))) pos = p;
     } catch {
       /* 처음 */
     }
-    st.current = { p: { ...pos }, target: null, keys: new Set(), lastDoor: BUILDINGS.find((b) => hit(pos, b.door))?.id ?? null, walking: 0, scale: 1, view: { x: 0, y: 0, w: 0, h: 0 } };
+    st.current = { p: { ...pos }, target: null, keys: new Set(), lastDoor: PLACES.find((b) => hit(pos, doorOf(b)))?.id ?? null, walking: 0, scale: 1, view: { x: 0, y: 0, w: 0, h: 0 } };
   }
 
   useEffect(() => {
@@ -74,7 +74,7 @@ export default function PolisMap({ v, renderPanel, onPlace }) {
     const s = st.current;
     const cv = canvas.current;
     const ctx = cv.getContext('2d');
-    const blocks = solids();
+    let blocks = solids();
     let raf;
     let last = performance.now();
     let bubbleTimer;
@@ -92,16 +92,17 @@ export default function PolisMap({ v, renderPanel, onPlace }) {
       cv.style.width = `${r.width}px`;
       cv.style.height = `${r.height}px`;
       s.dpr = dpr;
-      s.scale = Math.max(0.55, Math.min(1.15, r.width / 900));
+      s.scale = Math.max(0.5, Math.min(0.9, r.width / 1300));
     };
     resize();
     const ro = new ResizeObserver(resize);
     ro.observe(wrap.current);
 
-    const free = (x, y) => x > R && x < WORLD.w - R && y > R && y < WORLD.h - R && !blocks.some((b) => hit({ x, y }, b, R - 4));
+    const free = (x, y) => onLand(x, y, R) && !blocks.some((b) => hit({ x, y }, b, R - 4));
 
     const step = (dt) => {
       if (live.current.inside) return;
+      blocks = solids();
       let dx = 0;
       let dy = 0;
       const k = s.keys;
@@ -140,10 +141,13 @@ export default function PolisMap({ v, renderPanel, onPlace }) {
 
       // 문 앞에 섰는지
       const mm = live.current.m;
-      const at = BUILDINGS.find((b) => hit(s.p, b.door));
+      const at = PLACES.find((b) => hit(s.p, doorOf(b)));
       if (at && s.lastDoor !== at.id) {
         s.lastDoor = at.id;
-        if (isOpen(at.id, mm)) {
+        // 다른 건물로 길 안내 중이면 지나가는 문은 그냥 지나친다
+        if (s.target && s.targetId && s.targetId !== at.id) return;
+        if (at.soon) say(`🚧 ${at.name}: ${at.soon}`);
+        else if (isOpen(at.id, mm)) {
           s.target = null;
           s.keys.clear();
           setInside(at.id);
@@ -155,64 +159,72 @@ export default function PolisMap({ v, renderPanel, onPlace }) {
     const draw = (t) => {
       const W = cv.width / s.dpr;
       const H = cv.height / s.dpr;
-      const sc = s.scale;
+      const sc = Math.max(s.scale, H / 1020, W / WORLD.w);
+      s.sc = sc;
       const vw = W / sc;
       const vh = H / sc;
       const vx = Math.max(0, Math.min(WORLD.w - vw, s.p.x - vw / 2));
-      const vy = Math.max(0, Math.min(WORLD.h - vh, s.p.y - vh / 2));
+      const vy = Math.max(0, Math.min(Math.max(0, 1020 - vh), s.p.y - vh / 2));
       s.view = { x: vx, y: vy, w: vw, h: vh };
       ctx.setTransform(s.dpr * sc, 0, 0, s.dpr * sc, -vx * s.dpr * sc, -vy * s.dpr * sc);
-      ctx.fillStyle = '#7fb35c';
-      ctx.fillRect(vx - 2, vy - 2, vw + 4, vh + 4);
-      drawGround(ctx, s.view, t);
+      drawGround(ctx, s.view);
       const mm = live.current.m;
       const g = goalOf(mm);
-      const items = [
-        ...BUILDINGS.map((b) => ({ y: b.rect.y + b.rect.h, draw: () => drawBuilding(ctx, b, { open: isOpen(b.id, mm), goal: g === b.id, t }) })),
-      ];
-      items.sort((a, b) => a.y - b.y).forEach((i) => i.draw());
-      drawTrees(ctx, s.view);
+      const items = PLACES.map((b) => ({ y: b.base - 4, draw: () => drawPlace(ctx, b, { open: isOpen(b.id, mm), goal: g === b.id, t }) }));
 
       // 친구들: 들어간 건물 문 앞에 모여 서 있다
       const crowd = live.current.crowd;
       for (const [place, list] of Object.entries(crowd)) {
         const b = byId[place];
-        const cx = b ? b.door.x + b.door.w / 2 : PLAZA.x;
-        const cy = b ? b.door.y + b.door.h + 26 : PLAZA.y;
+        const d = b ? doorOf(b) : null;
+        const cx = d ? d.x + d.w / 2 : PLAZA.x;
+        const cy = d ? Math.min(d.y + d.h + 18, 818) : PLAZA.y;
         list.slice(0, 24).forEach((av, i) => {
           let x;
           let y;
-          if (b) {
+          if (d) {
             const row = Math.floor(i / 8);
             const col = i % 8;
             x = cx + (col - 3.5) * 30 + (row % 2) * 15;
-            y = cy + row * 26;
+            y = cy + row * 22;
           } else {
             const a = (i / Math.max(6, list.length)) * Math.PI * 2;
-            x = cx + Math.cos(a) * 78;
-            y = cy + Math.sin(a) * 62;
+            x = cx + Math.cos(a) * 150;
+            y = cy + 30 + Math.sin(a) * 82;
           }
-          drawToken(ctx, avatarImg(av), x, y, 30, Math.sin(t / 300 + i) * 1.5, '#e8dcc0');
+          items.push({ y, draw: () => drawFigure(ctx, avatarImg(av), x, y, 50, { bob: Math.abs(Math.sin(t / 380 + i)) * 2 }) });
         });
-        if (list.length > 24 && b) {
-          ctx.font = '700 14px sans-serif';
-          ctx.fillStyle = '#2a2622';
-          ctx.fillText(`+${list.length - 24}`, cx + 140, cy + 70);
+        if (list.length > 24 && d) {
+          items.push({
+            y: cy + 80,
+            draw: () => {
+              ctx.font = '700 15px sans-serif';
+              ctx.fillStyle = '#2a2622';
+              ctx.fillText(`+${list.length - 24}`, cx + 140, cy + 60);
+            },
+          });
         }
       }
 
       // 나
       const me = live.current.me;
-      const bob = s.walking ? Math.abs(Math.sin(s.walking * 12)) * 5 : 0;
-      drawToken(ctx, avatarImg(me?.avatar), s.p.x, s.p.y, 46, bob, '#ffd66b');
-      ctx.font = '700 13px "Gowun Dodum", sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillStyle = 'rgba(42,38,34,.85)';
-      roundRect(ctx, s.p.x - 18, s.p.y - 54 - bob, 36, 18, 9);
-      ctx.fill();
-      ctx.fillStyle = '#fff';
-      ctx.textBaseline = 'middle';
-      ctx.fillText('나', s.p.x, s.p.y - 45 - bob);
+      const bob = s.walking ? Math.abs(Math.sin(s.walking * 12)) * 6 : 0;
+      items.push({
+        y: s.p.y,
+        draw: () => {
+          drawFigure(ctx, avatarImg(me?.avatar), s.p.x, s.p.y + 14, 72, { bob, ring: '#ffd66b' });
+          ctx.font = '700 13px "Gowun Dodum", sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillStyle = 'rgba(42,38,34,.85)';
+          roundRect(ctx, s.p.x - 18, s.p.y - 86 - bob, 36, 18, 9);
+          ctx.fill();
+          ctx.fillStyle = '#fff';
+          ctx.textBaseline = 'middle';
+          ctx.fillText('나', s.p.x, s.p.y - 77 - bob);
+        },
+      });
+      items.sort((a, b) => a.y - b.y).forEach((i) => i.draw());
+      PLACES.forEach((b) => drawPlaceLabel(ctx, b, { goal: g === b.id, t }));
 
       // 걸어갈 곳 표시
       if (s.target) {
@@ -226,8 +238,7 @@ export default function PolisMap({ v, renderPanel, onPlace }) {
       // 목표 건물이 화면 밖이면 가장자리에 화살표
       if (g) {
         const b = byId[g];
-        const gx = b.door.x + b.door.w / 2;
-        const gy = b.door.y + b.door.h / 2;
+        const { x: gx, y: gy } = doorPoint(b);
         const inView = gx > vx && gx < vx + vw && gy > vy && gy < vy + vh;
         if (!inView) {
           const ang = Math.atan2(gy - s.p.y, gx - s.p.x);
@@ -302,10 +313,11 @@ export default function PolisMap({ v, renderPanel, onPlace }) {
   const onPointer = (e) => {
     const s = st.current;
     const r = canvas.current.getBoundingClientRect();
-    const wx = s.view.x + (e.clientX - r.left) / s.scale;
-    const wy = s.view.y + (e.clientY - r.top) / s.scale;
-    const b = BUILDINGS.find((x) => hit({ x: wx, y: wy }, x.rect, 10) || hit({ x: wx, y: wy }, x.door));
-    s.target = b ? { x: b.door.x + b.door.w / 2, y: b.door.y + b.door.h / 2 } : { x: wx, y: wy };
+    const wx = s.view.x + (e.clientX - r.left) / (s.sc || s.scale);
+    const wy = s.view.y + (e.clientY - r.top) / (s.sc || s.scale);
+    const b = PLACES.find((x) => hit({ x: wx, y: wy }, boxOf(x), -10) || hit({ x: wx, y: wy }, doorOf(x)));
+    s.target = b ? doorPoint(b) : { x: wx, y: wy };
+    s.targetId = b?.id || null;
   };
 
   const pad = (dir) => ({
@@ -322,7 +334,16 @@ export default function PolisMap({ v, renderPanel, onPlace }) {
     const s = st.current;
     const b = byId[inside];
     if (b) {
-      s.p = { x: b.door.x + b.door.w / 2, y: b.door.y + b.door.h + 34 };
+      const d = doorOf(b);
+      const cx = d.x + d.w / 2;
+      const spots = [
+        { x: cx, y: d.y + d.h + 24 },
+        { x: d.x - 26, y: d.y + d.h / 2 },
+        { x: d.x + d.w + 26, y: d.y + d.h / 2 },
+        { x: cx, y: d.y + d.h - 6 },
+      ];
+      const blocks = solids();
+      s.p = spots.find((p) => onLand(p.x, p.y, R) && !blocks.some((r) => hit(p, r, R - 4))) || { ...SPAWN };
       s.lastDoor = b.id;
       try {
         sessionStorage.setItem(POS_KEY, JSON.stringify(s.p));
@@ -344,8 +365,8 @@ export default function PolisMap({ v, renderPanel, onPlace }) {
             type="button"
             className="btn btn-gold btn-sm"
             onClick={() => {
-              const b = byId[goal];
-              st.current.target = { x: b.door.x + b.door.w / 2, y: b.door.y + b.door.h / 2 };
+              st.current.target = doorPoint(byId[goal]);
+              st.current.targetId = goal;
             }}
           >
             길 안내
