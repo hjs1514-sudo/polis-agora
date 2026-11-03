@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { AVATARS, STAGES, STAGE_NAMES } from './core/engine.js';
 
-export const BG = { login: 'img/bg/gate.png', notice: 'img/bg/gate.png', agora: 'img/bg/agora.png', adopt: 'img/bg/agora.png', vote: 'img/bg/acropolis.png', oracle: 'img/bg/oracle.png' };
+export const BG = { login: 'img/bg/gate.jpg', notice: 'img/bg/gate.jpg', agora: 'img/bg/agora.jpg', adopt: 'img/bg/agora.jpg', vote: 'img/bg/acropolis.jpg', oracle: 'img/bg/oracle.jpg' };
 
 export function Backdrop({ stage }) {
   const src = BG[stage] || BG.login;

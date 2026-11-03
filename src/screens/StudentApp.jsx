@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, IS_DEMO } from '../api/index.js';
 import { AVATARS, LIMITS, STAGE_NAMES } from '../core/engine.js';
 import { Avatar, Backdrop, Stepper, store, usePoll, useToast } from '../ui.jsx';
 import Oracle from './Oracle.jsx';
+import PolisMap, { goalOf } from './PolisMap.jsx';
 
 const TOKEN = IS_DEMO ? 'polis-demo-student' : 'polis-student';
 
@@ -125,7 +126,16 @@ function AvatarPick({ current, onPick }) {
 function Citizen({ token, onLogout }) {
   const [toast, show] = useToast();
   const [changing, setChanging] = useState(false);
-  const { data: v, error, setData, refresh } = usePoll(() => api.me(token), IS_DEMO ? 1500 : 3000, [token]);
+  const [mapMode, setMapMode] = useState(() => store.get('polis-map') !== 'off');
+  const placeRef = useRef('map');
+  const { data: v, error, setData, refresh } = usePoll(() => api.me(token, mapMode ? placeRef.current : 'list'), IS_DEMO ? 1500 : 3000, [token, mapMode]);
+  const onPlace = useCallback((p) => {
+    placeRef.current = p;
+  }, []);
+  const toggleMap = () => {
+    store.set('polis-map', mapMode ? 'off' : 'on');
+    setMapMode(!mapMode);
+  };
   useEffect(() => {
     if (error?.status === 401) onLogout();
   }, [error, onLogout]);
@@ -172,7 +182,7 @@ function Citizen({ token, onLogout }) {
   const m = v.meeting;
   const stage = m?.stage || 'login';
   return (
-    <div className="page">
+    <div className={mapMode ? 'page map-page' : 'page'}>
       <Backdrop stage={stage} />
       <header className="topbar">
         <button type="button" className="me" onClick={() => setChanging(true)} title="모습 바꾸기">
@@ -184,6 +194,9 @@ function Citizen({ token, onLogout }) {
         <span className="room">
           {v.room?.grade}학년 {v.room?.klass}반 폴리스
         </span>
+        <button type="button" className="btn btn-ghost btn-sm" onClick={toggleMap} title="기기가 느리면 지도를 끄세요">
+          {mapMode ? '📋 목록으로' : '🗺️ 지도로'}
+        </button>
         <button
           type="button"
           className="btn btn-ghost btn-sm"
@@ -197,6 +210,13 @@ function Citizen({ token, onLogout }) {
         </button>
       </header>
       {error && <p className="net-warn">연결이 잠시 끊겼어요. 다시 잇는 중…</p>}
+      {mapMode ? (
+        <PolisMap
+          v={v}
+          onPlace={onPlace}
+          renderPanel={(id, open, leave) => <Building id={id} open={open} m={m} v={v} act={act} leave={leave} />}
+        />
+      ) : (
       <main className="stage-main">
         {!m ? (
           <div className="card center">
@@ -214,7 +234,55 @@ function Citizen({ token, onLogout }) {
           </>
         )}
       </main>
+      )}
       {toast}
+    </div>
+  );
+}
+
+const BUILDING_FOR = { notice: 'board', agora: 'agora', adopt: 'agora', vote: 'acropolis', oracle: 'oracle' };
+const NAMES = { board: '전령의 게시판', agora: '아고라 광장', acropolis: '아크로폴리스', oracle: '델포이 신전' };
+
+/** 지도에서 건물에 들어갔을 때 보이는 것 */
+function Building({ id, open, m, v, act, leave }) {
+  if (!m)
+    return (
+      <div className="card center">
+        <p className="muted">선생님이 회의 주제를 준비하고 있어요.</p>
+      </div>
+    );
+  if (!open) {
+    const go = BUILDING_FOR[m.stage];
+    return (
+      <div className="card center">
+        <h2 className="h2" style={{ justifyContent: 'center' }}>이곳의 일은 끝났어요</h2>
+        <p className="muted">지금은 {NAMES[go]}(으)로 가야 해요.</p>
+        <button type="button" className="btn btn-primary" onClick={leave}>
+          밖으로 나가기
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div className="building-inner">
+      {id !== 'oracle' && <Topic topic={m.topic} />}
+      {id === 'board' && (
+        <div className="card center">
+          <p className="muted">
+            {m.stage === 'notice'
+              ? '주제를 읽고 생각을 정리해 두세요. 선생님이 아고라 광장을 열면 그곳에서 의견을 쓸 수 있어요.'
+              : `지금은 ${NAMES[BUILDING_FOR[m.stage]]}에서 회의가 열리고 있어요.`}
+          </p>
+          {m.stage !== 'notice' && goalOf(m) !== 'board' && (
+            <button type="button" className="btn btn-primary" onClick={leave}>
+              {NAMES[BUILDING_FOR[m.stage]]}(으)로 가기
+            </button>
+          )}
+        </div>
+      )}
+      {id === 'agora' && <Agora m={m} me={v.me} act={act} />}
+      {id === 'acropolis' && <Vote m={m} act={act} />}
+      {id === 'oracle' && <Oracle topic={m.topic} result={m.result} voice />}
     </div>
   );
 }

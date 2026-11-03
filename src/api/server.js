@@ -24,7 +24,7 @@ export const serverApi = {
   status: () => call('/status'),
   setup: (b) => call('/setup', { method: 'POST', body: b }),
   login: (b) => call('/login', { method: 'POST', body: b }).then((r) => r.token),
-  me: (token) => call('/me', { headers: S(token) }),
+  me: (token, place = '') => call(`/me?place=${encodeURIComponent(place)}`, { headers: S(token) }),
   act: (token, action) => call('/act', { method: 'POST', body: action, headers: S(token) }),
   logout: (token) => call('/logout', { method: 'POST', headers: S(token) }),
   teacherState: (pin) => call('/teacher/state', { headers: T(pin) }),

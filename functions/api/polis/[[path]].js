@@ -1,6 +1,6 @@
 // 폴리스 학급회의 서버 (Cloudflare Pages Functions + D1, 바인딩 이름 DB)
 // 주소: /api/polis/...  학급 하나만 담는다. 회의 규칙은 src/core/engine.js 에 있다.
-import { emptyState, apply, checkLogin, studentView, teacherView, PolisError } from '../../../src/core/engine.js';
+import { emptyState, apply, checkLogin, studentView, teacherView, crowdOf, PolisError } from '../../../src/core/engine.js';
 
 const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS polis_state (id INTEGER PRIMARY KEY, data TEXT NOT NULL, version INTEGER NOT NULL DEFAULT 0, pin_hash TEXT NOT NULL DEFAULT '', fails INTEGER NOT NULL DEFAULT 0, fail_at INTEGER NOT NULL DEFAULT 0)`,
@@ -25,6 +25,11 @@ async function db(env) {
   if (!ready) {
     await env.DB.batch(SCHEMA.map((s) => env.DB.prepare(s)));
     await env.DB.prepare('INSERT OR IGNORE INTO polis_state (id, data) VALUES (1, ?)').bind(JSON.stringify(emptyState())).run();
+    try {
+      await env.DB.prepare("ALTER TABLE polis_seen ADD COLUMN place TEXT NOT NULL DEFAULT ''").run();
+    } catch {
+      /* 이미 있음 */
+    }
     ready = true;
   }
   return env.DB;
@@ -77,8 +82,8 @@ async function requireStudent(d, request) {
 }
 
 async function seenMap(d) {
-  const { results } = await d.prepare('SELECT no, at FROM polis_seen').all();
-  return Object.fromEntries(results.map((r) => [r.no, r.at]));
+  const { results } = await d.prepare('SELECT no, at, place FROM polis_seen').all();
+  return Object.fromEntries(results.map((r) => [r.no, { at: r.at, place: r.place }]));
 }
 
 async function body(request) {
@@ -129,9 +134,10 @@ async function route(ctx) {
   if (path === 'me' && method === 'GET') {
     const { no, state } = await requireStudent(d, request);
     const now = Date.now();
-    await d.prepare('INSERT INTO polis_seen (no, at) VALUES (?, ?) ON CONFLICT (no) DO UPDATE SET at = excluded.at WHERE excluded.at - polis_seen.at > 10000')
-      .bind(no, now).run();
-    return studentView(state, no);
+    const place = (new URL(request.url).searchParams.get('place') || '').replace(/[^a-z]/g, '').slice(0, 12);
+    await d.prepare('INSERT INTO polis_seen (no, at, place) VALUES (?, ?, ?) ON CONFLICT (no) DO UPDATE SET at = excluded.at, place = excluded.place WHERE excluded.at - polis_seen.at > 10000 OR polis_seen.place != excluded.place')
+      .bind(no, now, place).run();
+    return studentView(state, no, place && place !== 'list' ? crowdOf(state, await seenMap(d), no, now) : null);
   }
   if (path === 'act' && method === 'POST') {
     const { no } = await requireStudent(d, request);

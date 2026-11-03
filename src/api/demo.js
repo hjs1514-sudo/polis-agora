@@ -1,6 +1,6 @@
 // 체험판: 서버 없이 이 브라우저 안에서만 돌아간다. 어디에도 보내거나 저장하지 않는다(이 브라우저의 localStorage만).
 // 가상 학생 11명이 의견을 올리고 올리브 가지를 달고 투표한다.
-import { emptyState, apply, checkLogin, studentView, teacherView, PolisError } from '../core/engine.js';
+import { emptyState, apply, checkLogin, studentView, teacherView, crowdOf, PolisError } from '../core/engine.js';
 
 const KEY = 'polis-demo-v1';
 export const DEMO = { grade: 2, klass: 1, code: '1234', pin: '0000', topic: '우리 반 청소 당번은 어떻게 정할까?' };
@@ -135,9 +135,18 @@ function tick() {
   return db;
 }
 
-const botSeen = (db) => {
+const PLACE_FOR = { notice: 'board', agora: 'agora', adopt: 'agora', vote: 'acropolis', oracle: 'oracle' };
+/** 가상 학생들은 대부분 지금 단계의 건물에, 몇 명은 분수대 근처에 있다 */
+const botSeen = (db, mePlace = {}) => {
   const now = Date.now();
-  return Object.fromEntries(Object.values(db.state.students).map((s) => [s.no, s.tokenHash ? now : 0]));
+  const m = db.state.meeting;
+  return Object.fromEntries(
+    Object.values(db.state.students).map((s) => {
+      if (s.tokenHash !== 'bot') return [s.no, s.tokenHash ? { at: now, place: mePlace[s.no] || db.places?.[s.no] || '' } : 0];
+      const place = m && s.no % 4 !== 0 ? PLACE_FOR[m.stage] : 'map';
+      return [s.no, { at: now, place }];
+    }),
+  );
 };
 const wait = (v) => new Promise((r) => setTimeout(() => r(v), 120));
 const teacherOk = (pin) => {
@@ -183,9 +192,12 @@ export const demoApi = {
     save(db);
     return token;
   }),
-  me: guard((token) => {
+  me: guard((token, place = '') => {
     const db = tick();
-    return studentView(db.state, studentNo(db, token));
+    const no = studentNo(db, token);
+    db.places = { ...(db.places || {}), [no]: place };
+    save(db);
+    return studentView(db.state, no, place && place !== 'list' ? crowdOf(db.state, botSeen(db), no) : null);
   }),
   act: guard((token, action) => {
     const db = tick();

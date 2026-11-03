@@ -314,13 +314,14 @@ const avatarOf = (state, no) => (no === 0 ? 'teacher' : state.students[no]?.avat
 const nameOf = (state, no) => (no === 0 ? '선생님' : state.students[no]?.name || '');
 
 /** 학생에게 보낼 것: 다른 학생의 이름은 숨기고(설정에 따라), 숨긴 글은 빼고, 투표 중 득표는 숨긴다 */
-export function studentView(state, no) {
+export function studentView(state, no, crowd = null) {
   const me = state.students[no];
   const m = state.meeting;
   const view = {
     room: state.setup,
     me: me ? { no: me.no, name: me.name, avatar: me.avatar, muted: !!me.muted } : null,
     meeting: null,
+    crowd: crowd || {},
   };
   if (!m) return view;
   const opinions = m.opinions
@@ -352,6 +353,21 @@ export function studentView(state, no) {
   return view;
 }
 
+const seenAt = (x) => (typeof x === 'number' ? x : x?.at || 0);
+
+/** 지도에서 친구들이 있는 곳: { agora: [아바타...], ... } (나는 빼고, 이름 없이) */
+export function crowdOf(state, seen, no, now = Date.now()) {
+  const out = {};
+  for (const [k, x] of Object.entries(seen)) {
+    const n = Number(k);
+    if (n === no || !x?.place || x.place === 'list' || now - seenAt(x) > 30000) continue;
+    const s = state.students[n];
+    if (!s?.avatar) continue;
+    (out[x.place] ||= []).push(s.avatar);
+  }
+  return out;
+}
+
 /** 교사에게 보낼 것: 모두 */
 export function teacherView(state, seen = {}, now = Date.now()) {
   const m = state.meeting;
@@ -364,7 +380,8 @@ export function teacherView(state, seen = {}, now = Date.now()) {
       avatar: s.avatar,
       muted: !!s.muted,
       loggedIn: !!s.tokenHash,
-      online: !!seen[s.no] && now - seen[s.no] < 20000,
+      online: !!seen[s.no] && now - seenAt(seen[s.no]) < 20000,
+      place: seen[s.no]?.place || '',
       posts: m ? m.opinions.filter((o) => o.no === s.no).length : 0,
       voted: votes[s.no] !== undefined,
     }));

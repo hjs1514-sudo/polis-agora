@@ -4,6 +4,7 @@ import { DEMO_INFO } from '../api/index.js';
 import { LIMITS, STAGES, STAGE_NAMES } from '../core/engine.js';
 import { Avatar, Backdrop, Stepper, store, usePoll, useToast } from '../ui.jsx';
 import Oracle from './Oracle.jsx';
+import { Qr } from '../Qr.jsx';
 
 const PIN = IS_DEMO ? 'polis-demo-pin' : 'polis-pin';
 
@@ -203,6 +204,10 @@ function Dashboard({ pin, onLock }) {
           </button>
         </div>
       </header>
+      <div className="qr-strip">
+        <Qr size={64} code={v.code} />
+        <span className="muted small">학생들은 이 QR을 찍고 학년·반·번호·이름과 입장 코드로 들어와요. QR을 누르면 크게 보여요.</span>
+      </div>
       {error && <p className="net-warn">연결이 잠시 끊겼어요. 다시 잇는 중…</p>}
       <main className="teacher-main">
         {tab === 'meeting' && <MeetingTab v={v} act={act} show={show} />}
@@ -437,6 +442,11 @@ function TvView({ v, onClose }) {
       <button type="button" className="btn btn-ghost btn-sm tv-close" onClick={onClose}>
         ✕ 닫기
       </button>
+      {(!m || m.stage === 'notice' || m.stage === 'agora') && (
+        <div className="tv-qr">
+          <Qr size={120} code={v.code} big />
+        </div>
+      )}
       <main className="tv-main">
         {!m && <h1 className="tv-title">회의 주제를 기다리는 중</h1>}
         {m && m.stage !== 'oracle' && (
